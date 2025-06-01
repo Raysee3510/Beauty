@@ -3,7 +3,6 @@
  * 日本一ウェブデザイナー監修
  * モバイルファースト JavaScript
  */
-
 // DOM読み込み完了後に実行
 document.addEventListener('DOMContentLoaded', function() {
     
@@ -168,6 +167,8 @@ function initProductToggle() {
     });
     
     function showCard(card) {
+        if (!card) return;
+        
         card.style.transform = 'translateX(-100%)';
         card.classList.remove('hidden');
         
@@ -178,6 +179,8 @@ function initProductToggle() {
     }
     
     function hideCard(card) {
+        if (!card) return;
+        
         card.style.transition = 'transform 0.3s ease';
         card.style.transform = 'translateX(100%)';
         
@@ -260,6 +263,11 @@ function initReviewCarousel() {
                 currentSlide = index;
                 updateCarousel();
                 resetAutoSlide();
+                
+                // ハプティックフィードバック
+                if (navigator.vibrate) {
+                    navigator.vibrate(30);
+                }
             });
         });
         
@@ -288,13 +296,15 @@ function initReviewCarousel() {
         }
         
         // 初期化
-        startAutoSlide();
+        if (dots.length > 0) {
+            startAutoSlide();
+        }
         
         // ページが非表示になったら自動スライドを停止
         document.addEventListener('visibilitychange', function() {
             if (document.hidden) {
                 clearInterval(autoSlideInterval);
-            } else {
+            } else if (dots.length > 0) {
                 startAutoSlide();
             }
         });
@@ -536,10 +546,20 @@ function initPWA() {
         window.addEventListener('load', function() {
             navigator.serviceWorker.register('./sw.js')
                 .then(function(registration) {
-                    console.log('SW registered: ', registration);
+                    console.log('🔧 SW registered: ', registration);
+                    
+                    // 更新があった場合の処理
+                    registration.addEventListener('updatefound', () => {
+                        const newWorker = registration.installing;
+                        newWorker.addEventListener('statechange', () => {
+                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                showUpdateAvailable();
+                            }
+                        });
+                    });
                 })
                 .catch(function(registrationError) {
-                    console.log('SW registration failed: ', registrationError);
+                    console.log('❌ SW registration failed: ', registrationError);
                 });
         });
     }
@@ -551,7 +571,7 @@ function initPWA() {
         e.preventDefault();
         deferredPrompt = e;
         
-        // インストールボタンを表示（オプション）
+        // インストールボタンを表示
         showInstallPrompt();
     });
     
@@ -563,8 +583,8 @@ function initPWA() {
             <div class="install-content">
                 <i class="fas fa-download"></i>
                 <span>アプリとしてインストール</span>
-                <button class="install-btn">インストール</button>
-                <button class="install-close">×</button>
+                <button class="install-btn touchable">インストール</button>
+                <button class="install-close touchable">×</button>
             </div>
         `;
         
@@ -576,7 +596,7 @@ function initPWA() {
                 deferredPrompt.prompt();
                 deferredPrompt.userChoice.then((choiceResult) => {
                     if (choiceResult.outcome === 'accepted') {
-                        console.log('User accepted the install prompt');
+                        console.log('✅ User accepted the install prompt');
                     }
                     deferredPrompt = null;
                     installBanner.remove();
@@ -595,6 +615,29 @@ function initPWA() {
                 installBanner.remove();
             }
         }, 5000);
+    }
+    
+    function showUpdateAvailable() {
+        const updateBanner = document.createElement('div');
+        updateBanner.className = 'install-banner';
+        updateBanner.innerHTML = `
+            <div class="install-content">
+                <i class="fas fa-sync-alt"></i>
+                <span>新しいバージョンが利用可能です</span>
+                <button class="install-btn touchable">更新</button>
+                <button class="install-close touchable">×</button>
+            </div>
+        `;
+        
+        document.body.appendChild(updateBanner);
+        
+        updateBanner.querySelector('.install-btn').addEventListener('click', () => {
+            window.location.reload();
+        });
+        
+        updateBanner.querySelector('.install-close').addEventListener('click', () => {
+            updateBanner.remove();
+        });
     }
 }
 
@@ -628,7 +671,73 @@ function initAnalytics() {
                 });
             });
         });
+        
+        // スクロール深度の測定
+        let maxScroll = 0;
+        window.addEventListener('scroll', () => {
+            const scrollPercent = Math.round((window.scrollY / (document.body.scrollHeight - window.innerHeight)) * 100);
+            if (scrollPercent > maxScroll) {
+                maxScroll = scrollPercent;
+                if (maxScroll % 25 === 0) { // 25%, 50%, 75%, 100%
+                    gtag('event', 'scroll', {
+                        event_category: 'engagement',
+                        event_label: `${maxScroll}%`
+                    });
+                }
+            }
+        });
     }
+    
+    // カスタムアナリティクス（簡易版）
+    const analytics = {
+        pageLoad: Date.now(),
+        interactions: 0,
+        
+        track: function(event, data) {
+            this.interactions++;
+            console.log('📊 Analytics:', event, data);
+            
+            // ローカルストレージに保存（オプション）
+            const analyticsData = JSON.parse(localStorage.getItem('beauty-analytics') || '[]');
+            analyticsData.push({
+                event,
+                data,
+                timestamp: Date.now(),
+                url: window.location.href
+            });
+            
+            // 最新100件のみ保持
+            if (analyticsData.length > 100) {
+                analyticsData.splice(0, analyticsData.length - 100);
+            }
+            
+            localStorage.setItem('beauty-analytics', JSON.stringify(analyticsData));
+        }
+    };
+    
+    // イベント追跡
+    document.addEventListener('click', (e) => {
+        if (e.target.closest('.product-card')) {
+            analytics.track('product_card_click', {
+                product: e.target.closest('.product-card').id
+            });
+        }
+        
+        if (e.target.closest('.nav-tab')) {
+            analytics.track('navigation_click', {
+                section: e.target.closest('.nav-tab').dataset.section
+            });
+        }
+    });
+    
+    // ページ離脱時の統計
+    window.addEventListener('beforeunload', () => {
+        const timeOnPage = Date.now() - analytics.pageLoad;
+        analytics.track('page_exit', {
+            timeOnPage,
+            interactions: analytics.interactions
+        });
+    });
 }
 
 /**
@@ -643,15 +752,98 @@ function smoothScrollTo(element, offset = 0) {
     });
 }
 
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+function throttle(func, limit) {
+    let inThrottle;
+    return function() {
+        const args = arguments;
+        const context = this;
+        if (!inThrottle) {
+            func.apply(context, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    }
+}
+
+// エラーハンドリング
+window.addEventListener('error', function(e) {
+    console.error('🚨 JavaScript Error:', e.error);
+    
+    // エラー情報をローカルストレージに保存
+    const errorLog = JSON.parse(localStorage.getItem('beauty-errors') || '[]');
+    errorLog.push({
+        message: e.message,
+        filename: e.filename,
+        lineno: e.lineno,
+        colno: e.colno,
+        timestamp: Date.now(),
+        userAgent: navigator.userAgent
+    });
+    
+    // 最新10件のみ保持
+    if (errorLog.length > 10) {
+        errorLog.splice(0, errorLog.length - 10);
+    }
+    
+    localStorage.setItem('beauty-errors', JSON.stringify(errorLog));
+});
+
+// 未処理のPromise拒否をキャッチ
+window.addEventListener('unhandledrejection', function(e) {
+    console.error('🚨 Unhandled Promise Rejection:', e.reason);
+});
+
 // デバッグ用（開発時のみ）
-if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    console.log('🏆 日本一ウェブデザイナー監修サイト - 開発モード');
+if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.includes('github.io')) {
+    console.log('🏆 日本一ウェブデザイナー監修サイト - JavaScript読み込み完了');
     
     // パフォーマンス測定
     window.addEventListener('load', () => {
         if ('performance' in window) {
             const loadTime = performance.timing.loadEventEnd - performance.timing.navigationStart;
-            console.log(`ページ読み込み時間: ${loadTime}ms`);
+            console.log(`📊 ページ読み込み時間: ${loadTime}ms`);
+            
+            // Core Web Vitals（簡易版）
+            if ('PerformanceObserver' in window) {
+                const observer = new PerformanceObserver((list) => {
+                    for (const entry of list.getEntries()) {
+                        if (entry.entryType === 'largest-contentful-paint') {
+                            console.log(`🎯 LCP: ${entry.startTime}ms`);
+                        }
+                        if (entry.entryType === 'first-input') {
+                            console.log(`⚡ FID: ${entry.processingStart - entry.startTime}ms`);
+                        }
+                    }
+                });
+                
+                observer.observe({entryTypes: ['largest-contentful-paint', 'first-input']});
+            }
         }
     });
+    
+    // デバッグ用のグローバル関数
+    window.beautyDebug = {
+        getAnalytics: () => JSON.parse(localStorage.getItem('beauty-analytics') || '[]'),
+        getErrors: () => JSON.parse(localStorage.getItem('beauty-errors') || '[]'),
+        clearData: () => {
+            localStorage.removeItem('beauty-analytics');
+            localStorage.removeItem('beauty-errors');
+            console.log('🧹 デバッグデータをクリアしました');
+        }
+    };
 }
+
+// 初期化完了の通知
+console.log('✅ 美容液比較サイト JavaScript 初期化完了 - モバイルファースト対応');
